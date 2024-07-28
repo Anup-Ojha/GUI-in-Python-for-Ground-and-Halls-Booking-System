@@ -1,0 +1,35 @@
+.first {
+  width: 800px;
+  height: 680px;
+  margin-left: 25%;
+}
+.second {
+    background-color: red;
+    height: 40px;
+}
+.third {
+    background-color: green;
+    height: 20px;
+}
+.cyan {
+    background: cyan;
+    width: 200px;
+    height: 580px;
+}
+.yellow {
+    background: yellow;
+    width: 400px;
+    height: 580px;
+    margin-left: 200px;
+}
+.blue {
+    background: blue;
+    width: 200px;
+    height: 580px;
+    margin-left: 400px;
+}
+.orange {
+    background: orange;
+    height:40px;
+    width: auto;
+}
