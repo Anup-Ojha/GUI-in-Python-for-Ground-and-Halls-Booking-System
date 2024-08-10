@@ -1,0 +1,570 @@
+#!c:\users\lenovo\pycharmprojects\pythonproject\anup projects\loginscreen\venv\scripts\python.exe
+"""
+This is bicycle that implements some functions of grep, ack, sed.
+This program intended to do two things:
+    * search pattern in files
+    * search pattern in files and replace it with another pattern
+"""
+
+import os
+import shutil
+import logging
+import sys
+from optparse import OptionParser, OptionGroup, SUPPRESS_HELP
+import re
+import warnings
+import time
+
+IGNORE_DIRS = ['autom4te.cache', 'blib', '_build', '.bzr', '.cdv', 'cover_db',
+               'CVS', '_darcs', '~.dep', '~.dot', '.git', '.hg', '~.nib',
+               '.pc', '~.plst', 'RCS', 'SCCS', '_sgbak', '.svn']
+
+IGNORE_FILES = [re.compile(pat) for pat in ('~$', '#.+#$', '[._].*\.swp$',
+                                            'core\.\d+$', '\.pyc$')]
+
+BACKUP_RE = re.compile('\.\d\d\d~$')
+DEFAULT_OUTPUT_LIMIT = 320
+
+# Thank's to ack for this list
+def TYPES():
+    """
+    Return dict of file types and its extensions.
+    """
+
+    if config.types_cache:
+        return config.types_cache
+
+    types = {
+        'actionscript': '.as .mxml',
+        'asm': '.asm .s',
+        'batch': '.bat .cmd',
+        #'binary': 'Binary files, as defined by Perl's -B op (default: off)',
+        'cc': '.c .h .xs',
+        'cfmx': '.cfc .cfm .cfml',
+        'cpp': '.cpp .cc .cxx .m .hpp .hh .h .hxx',
+        'csharp': '.cs',
+        'css': '.css',
+        'elisp': '.el',
+        'erlang': '.erl',
+        'fortran': '.f .f77 .f90 .f95 .f03 .for .ftn .fpp',
+        'haskell': '.hs .lhs',
+        'hh': '.h',
+        'html': '.htm .html .shtml .xhtml',
+        'java': '.java .properties',
+        'js': '.js',
+        'jsp': '.jsp .jspx .jhtm .jhtml',
+        'lisp': '.lisp .lsp',
+        'lua': '.lua',
+        'make': 'Makefiles',
+        'mason': '.mas .mhtml .mpl .mtxt',
+        'objc': '.m .h',
+        'objcpp': '.mm .h',
+        'ocaml': '.ml .mli',
+        'parrot': '.pir .pasm .pmc .ops .pod .pg .tg',
+        'perl': '.pl .pm .pod .t',
+        'php': '.php .phpt .php3 .php4 .php5',
+        'plone': '.pt .cpt .metadata .cpy',
+        'python': '.py',
+        'ruby': '.rb .rhtml .rjs .rxml .erb',
+        'scheme': '.scm',
+        'shell': '.sh .bash .csh .tcsh .ksh .zsh',
+        'smalltalk': '.st',
+        'sql': '.sql .ctl',
+        'tcl': '.tcl .itcl .itk',
+        'tex': '.tex .cls .sty',
+        'tt': '.tt .tt2 .ttml',
+        'vb': '.bas .cls .frm .ctl .vb .resx',
+        'vim': '.vim',
+        'xml': '.xml .dtd .xslt .ent',
+        'yaml': '.yaml .yml',
+    }
+
+    items = {}
+    for ftype, ext_list in types.iteritems():
+        items[ftype] = ext_list.split()
+
+    config.types_cache = items
+    return items
+
+
+class Config:
+    """
+    Class for storing runtime config.
+    """
+
+    def __init__(self):
+        self.term = Terminal()
+        self.search = None
+        self.replace = None
+        self.stat = {'all': 0}
+        self.types_cache = None
+        self.filenames = False
+        self.output_limit = DEFAULT_OUTPUT_LIMIT
+        self.targets = []
+        self.exclude_list = []
+        self.backup = False
+
+
+def build_lang_options(parser):
+    """
+    Build options for parsing language types.
+    """
+    langs = OptionGroup(parser, "File type options",
+                        ("Use this options to select file types you'd like to process.\n"
+                         "Use --help-types option to output all available file types."))
+    for ftype in TYPES():
+        langs.add_option('--%s' % ftype, dest='types',
+                         action='append_const', const=ftype,
+                         help=SUPPRESS_HELP)
+        langs.add_option('--no%s' % ftype, dest='ex_types',
+                         action='append_const', const=ftype,
+                         help=SUPPRESS_HELP)
+    parser.add_option_group(langs)
+
+
+
+def parse_options(config):
+    """
+    Parse startup options.
+    """
+
+    usage = """Usage: %prog [OPTIONS] [FILES]
+
+Perform specified actions with each file in the tree from cwd on down.
+If [FILES] is specified, then only those files/directories are checked.
+
+Actions:
+ -s, --search
+    What to search (default)
+ -r, --replace
+    What replace with (only with search option)
+
+Example: sr --python User"""
+
+    parser = OptionParser(usage=usage)
+
+    parser.add_option('-s', '--search', dest='search',
+                      help='what to search')
+    parser.add_option('-e', '--eliminate', dest='eliminate',
+                      help='what to eliminate from search')
+    parser.add_option('-r', '--replace', dest='replace',
+                      help='what replace with')
+    parser.add_option('-i', '--ignore-case', action='store_true',
+                      default=False, help='ignore case')
+    parser.add_option('-v', '--verbose', action='store_true',
+                      default=False, help='verbose output')
+    parser.add_option('-n', '--filenames', action='store_true',
+                      default=False, help='show only file names (only for search)')
+    parser.add_option('-l', '--output-limit', type='int',
+                      help='maximum length of output line to not truncate')
+    parser.add_option('--help-types', action='store_true', default=False,
+                      help='output available file types')
+    parser.add_option('-x', '--exclude', action='append',
+                      help='exclude from search the files that matches the pattern')
+    parser.add_option('-f', '--flags', help='additional regexp flags for searching')
+    parser.add_option('--explain', action='store_true', default=False,
+                      help='Do not do real replacements. Just display files which will be affected')
+    parser.add_option('-b', '--backup', default=False, action='store_true',
+                      help='Make backup file for each file being modified')
+
+    build_lang_options(parser)
+
+    (opts, args) = parser.parse_args()
+
+    logging.debug(opts)
+
+    config.backup = opts.backup
+    config.mode = 'search'
+
+    config.allow_exts = []
+    config.disallow_exts = []
+
+    config.explain = opts.explain
+
+    if opts.exclude:
+        for item in set(opts.exclude):
+            regexp = re.compile(item)
+            config.exclude_list.append(regexp)
+
+    if opts.filenames and not opts.replace is None:
+        parser.error('Options --filenames and --replace can\'t be used simultaneously')
+
+    if opts.filenames:
+        config.filenames = True
+
+    if opts.types:
+        for ftype in opts.types:
+            for ext in TYPES()[ftype]:
+                config.allow_exts.append(ext)
+
+    if opts.ex_types:
+        for ftype in opts.ex_types:
+            for ext in TYPES()[ftype]:
+                config.disallow_exts.append(ext)
+
+    if opts.verbose:
+        print 'allow exts:', config.allow_exts
+        print 'disallow exts:', config.disallow_exts
+
+
+    if not opts.output_limit is None:
+        config.output_limit = opts.output_limit
+
+    if opts.help_types:
+        config.mode = 'file-types'
+    else:
+        if not opts.search:
+            if not opts.replace is None:
+                parser.error('Replace option could be specified only with search option')
+            if not args:
+                parser.error('No options for search')
+            config.search = args[0]
+            if len(args) == 1:
+                config.targets = ['']
+            else:
+                config.targets = args[1:]
+        else:
+            config.search = opts.search
+            if args:
+                config.targets = args
+            else:
+                config.targets = ['']
+
+        if not opts.replace is None:
+            config.replace = opts.replace
+            config.mode = 'replace'
+
+        flags = 0
+        if opts.flags:
+            for flag in opts.flags:
+                flags |= getattr(re, flag.upper())
+        if opts.ignore_case:
+            flags |= re.I
+        config.search = re.compile(config.search, flags)
+        config.eliminate = opts.eliminate and re.compile(opts.eliminate, flags)
+
+def relpath(path):
+    curpath = os.getcwd() + '/'
+    if path.startswith(curpath):
+        return path[len(curpath):]
+    return path
+
+def search_line(line):
+    eliminate = config.eliminate and config.eliminate.search(line) or False
+    return config.search.search(line) and not eliminate
+
+def search(path, f):
+    """
+    Search pattern in each line of file.
+    """
+
+    started = False
+
+    for count, line in enumerate(f):
+        number = count + 1
+        if search_line(line):
+            if not started:
+                print config.term.highlight(relpath(path), 'GREEN')
+                if config.filenames:
+                    break
+                started = True
+            if len(line) <= config.output_limit:
+                print '%d:%s' % (number,
+                                 config.term.highlight(line.rstrip('\n\r'),
+                                                       ('BLACK', 'BG_YELLOW'),
+                                                       config.search))
+            else:
+                print '%d:LINE IS TOO LONG (>%d)' % (number, config.output_limit)
+    if started:
+        print
+
+
+def search_replace(path, f):
+    """
+    Search and replace patterns in file.
+
+    If backup setting is on then for each modified file create unique backup file with .FILENAME.XXX~
+    there XXX is numeral suffix
+    """
+
+    base, name = os.path.split(path)
+
+    while True:
+        tmp_path = '%s.%s.sr~' % (path, str(time.time()).replace('.', ''))
+        if not os.path.exists(tmp_path):
+            break
+
+    data = f.read()
+
+    if search_line(data):
+        print path
+
+        if config.explain:
+            return
+
+        # Read and create new data
+        data = config.search.sub(config.replace, data)
+
+        try:
+            open(tmp_path, 'w').write(data)
+        except IOError, ex:
+            logging.error('Can\'t create temporary file for %s' % path)
+            return
+
+        if config.backup: 
+            # Create backup
+            backup_path = None
+            for count in xrange(999):
+                test_path = os.path.join(base, '.%s.%03d~' % (name, count))
+                if not os.path.exists(test_path):
+                    backup_path = test_path
+                    break
+            if not backup_path:
+                logging.error('Can\'t create backup for %s. File was not modified' % path)
+                return
+
+        try:
+            if config.backup:
+                shutil.copy(path, backup_path)
+            else:
+                pass
+                # yep, we do nothing in this try block
+        except IOError, ex:
+            logging.error(ex)
+        else:
+            try:
+                shutil.copy(tmp_path, path)
+            except IOError, ex:
+                logging.error(ex)
+        finally:
+            os.unlink(tmp_path)
+
+
+
+def process_file(path):
+    """
+    TODO: write docstring.
+    """
+
+    try:
+        with file(path) as f:
+            if config.mode == 'search':
+                return search(path, f)
+            elif config.mode == 'replace':
+                return search_replace(path, f)
+    except IOError, e:
+        print 'Error: %s' % e
+
+
+def walk_files():
+    """
+    Iterator over files which names satisfies the search parameters.
+    """
+
+    # TODO: not check twice the same dir or file
+    for path in config.targets:
+        abs_path = os.path.join(cwd, path)
+
+        if not os.path.islink(abs_path) and os.path.isfile(abs_path):
+            walked.append(abs_path)
+            yield abs_path
+            #process_file(abs_path)
+
+        if os.path.isdir(abs_path):
+            walked.append(abs_path)
+            for root, dirs, files in os.walk(abs_path):
+                for fname in files:
+                    if isbackup(fname):
+                        continue
+                    abs_path = os.path.join(root, fname)
+                    walked.append(abs_path)
+                    if not os.path.islink(abs_path) and\
+                       os.path.isfile(abs_path):
+                        base, name = os.path.split(abs_path)
+                        XXX, ext = os.path.splitext(name)
+
+                        ignored = False
+                        for pattern in IGNORE_FILES:
+                            if pattern.search(fname):
+                                ignored = True
+                                break
+
+                        # maybe should be merged with IGNORE_FILES?
+                        for regexp in config.exclude_list:
+                            if regexp.search(fname):
+                                ignored = True
+                                break
+
+                        if not ignored:
+                            for test_ext in config.disallow_exts:
+                                if test_ext == ext:
+                                    ignored = True
+                                    break
+
+                        if not ignored:
+                            if config.allow_exts:
+                                ignored = True
+                                for test_ext in config.allow_exts:
+                                    if test_ext == ext:
+                                        ignored = False
+                                        break
+
+                            if not ignored:
+                                yield abs_path
+                                #process_file(abs_path)
+
+                for dir in dirs[:]:
+                    if dir in IGNORE_DIRS:
+                        dirs.remove(dir)
+                        if dir in dirs:
+                            dirs.remove(dir)
+                    # mayb be should be merged with IGNORE_DIRS?
+                    else:
+                        for regexp in config.exclude_list:
+                            if regexp.search(dir):
+                                # This check is required
+                                # because several different patterns
+                                # could match one file name
+                                if dir in dirs:
+                                    dirs.remove(dir)
+
+                for dir in dirs:
+                    abs_path = os.path.join(root, dir)
+                    walked.append(abs_path)
+
+
+def isbackup(fname):
+    """
+    Determine if fname is backup file name.
+    """
+
+    return bool(BACKUP_RE.search(fname))
+
+
+def get_terminal_width(default=80):
+    import fcntl, termios, struct
+    def ioctl_GWINSZ(fd):
+        try:
+            return struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ, '1234'))[1]
+        except:
+            return None
+    tw = ioctl_GWINSZ(0) or ioctl_GWINSZ(1) or ioctl_GWINSZ(2)  # try open fds
+    if not tw:
+        fd = os.open(os.ctermid(), os.O_RDONLY)
+        tw = ioctl_GWINSZ(fd)
+        os.close(fd)
+    return tw or default
+
+
+class Terminal:
+    """
+    This class allows to use color features of terminal.
+    """
+
+    BOLD = DIM = REVERSE = NORMAL = ''
+    BLACK = BLUE = GREEN = CYAN = RED = MAGENTA = YELLOW = WHITE = ''
+    BG_BLACK = BG_BLUE = BG_GREEN = BG_CYAN = ''
+    BG_RED = BG_MAGENTA = BG_YELLOW = BG_WHITE = ''
+
+    _STRING_CAPABILITIES = """BOLD=bold DIM=dim REVERSE=rev NORMAL=sgr0""".split()
+    _COLORS = """BLACK BLUE GREEN CYAN RED MAGENTA YELLOW WHITE""".split()
+    _ANSICOLORS = "BLACK RED GREEN YELLOW BLUE MAGENTA CYAN WHITE".split()
+
+    def __init__(self, term_stream=sys.stdout):
+        """
+        Create a `TerminalController` and initialize its attributes
+        with appropriate values for the current terminal.
+        `term_stream` is the stream that will be used for terminal
+        output; if this stream is not a tty, then the terminal is
+        assumed to be a dumb terminal (i.e., have no capabilities).
+        """
+
+        try:
+            import curses
+            curses.setupterm()
+        except:
+            return
+
+        if not term_stream.isatty():
+            return
+
+        # Look up string capabilities.
+        for capability in self._STRING_CAPABILITIES:
+            (attrib, cap_name) = capability.split('=')
+            setattr(self, attrib, self._tigetstr(cap_name) or '')
+
+        # Colors
+        set_fg = self._tigetstr('setf')
+        if set_fg:
+            for i,color in zip(range(len(self._COLORS)), self._COLORS):
+                setattr(self, color, curses.tparm(set_fg, i) or '')
+        set_fg_ansi = self._tigetstr('setaf')
+        if set_fg_ansi:
+            for i,color in zip(range(len(self._ANSICOLORS)), self._ANSICOLORS):
+                setattr(self, color, curses.tparm(set_fg_ansi, i) or '')
+        set_bg = self._tigetstr('setb')
+        if set_bg:
+            for i,color in zip(range(len(self._COLORS)), self._COLORS):
+                setattr(self, 'BG_'+color, curses.tparm(set_bg, i) or '')
+        set_bg_ansi = self._tigetstr('setab')
+        if set_bg_ansi:
+            for i,color in zip(range(len(self._ANSICOLORS)), self._ANSICOLORS):
+                setattr(self, 'BG_'+color, curses.tparm(set_bg_ansi, i) or '')
+
+    def _tigetstr(self, cap_name):
+        # String capabilities can include "delays" of the form "$<2>".
+        # For any modern terminal, we should be able to just ignore
+        # these, so strip them out.
+        import curses
+        cap = curses.tigetstr(cap_name) or ''
+        return re.sub(r'\$<\d+>[/*]?', '', cap)
+
+
+    def highlight(self, text, colors, search=None):
+        """
+        Highlight patttern.
+
+        @param search: compiled regular expression
+        """
+
+        if not isinstance(colors, (tuple, list)):
+            colors = [colors]
+        color = ''.join(getattr(self, x) for x in colors)
+        norm_color = getattr(self, 'NORMAL')
+
+        if search is None:
+            return color + text + norm_color
+        else:
+            def replacer(match):
+                return color + match.group(0) + norm_color
+            return search.sub(replacer, text)
+
+
+
+def display_file_types():
+    """
+    Display available file types
+    """
+
+    print 'Available file types. Each line contains the file type and the list of extensions by those the file type is determined. To include FOOBAR file type to search use --FOOBAR, to exlude use --noFOOBAR. You can include and exclude a number of file types.'
+    for ftype, extensions in TYPES().iteritems():
+        print '%s: %s' % (ftype, ', '.join(extensions))
+
+
+if __name__ == '__main__':
+    if 'SRDEBUG' in os.environ:
+        loglevel = logging.DEBUG
+    else:
+        loglevel = logging.ERROR
+    logging.basicConfig(level=loglevel)
+    warnings.filterwarnings('ignore', 'tmpnam')
+    config = Config()
+    parse_options(config)
+
+    cwd = os.getcwd()
+    walked = []
+    for path in walk_files():
+        process_file(path)
+
+    if config.mode == 'file-types':
+        display_file_types()

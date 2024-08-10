@@ -1,0 +1,13 @@
+prettytable-3.5.0.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
+prettytable-3.5.0.dist-info/METADATA,sha256=7riO5dZNjNWOIRJu-FyIeS2WlggLnCxqVr66ZVSvqWY,24413
+prettytable-3.5.0.dist-info/RECORD,,
+prettytable-3.5.0.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+prettytable-3.5.0.dist-info/WHEEL,sha256=NaLmgHHW_f9jTvv_wRh9vcK7c7EK9o5fwsIXMOzoGgM,87
+prettytable-3.5.0.dist-info/licenses/COPYING,sha256=DIrcwgTIr2zf33iH39H5nCmQH2wdUFp4u6lu-k-yywU,1612
+prettytable/__init__.py,sha256=RTjsv76d6I5GauWUWpp1am2q_jtJ9QudMfUvEns0FvY,904
+prettytable/__pycache__/__init__.cpython-310.pyc,,
+prettytable/__pycache__/colortable.cpython-310.pyc,,
+prettytable/__pycache__/prettytable.cpython-310.pyc,,
+prettytable/colortable.py,sha256=HfnpOu8fj4BdFex_7DbmxtqXO8MjrtbqXanFHCZp-U4,2477
+prettytable/prettytable.py,sha256=m_H8osBvTliI-arY29skG8PuGgJajL91AhGIkAU8r4U,87770
+prettytable/py.typed,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
